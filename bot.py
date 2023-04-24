@@ -1,73 +1,129 @@
 from telebot import TeleBot
-from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, LabeledPrice, Message
+from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, LabeledPrice, Message, ReplyKeyboardMarkup, KeyboardButton
 from dotenv import load_dotenv
 import os
+from kb import *
+from models import session, Product
 
 load_dotenv()
 
 bot_token = os.getenv("bot_token")
 stripe_token = os.getenv("stripe_token")
+owner = int(os.getenv("owner"))
 bot = TeleBot(bot_token, parse_mode="HTML")
 
-desc = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, "
-products = {
-    "1": {"name": "Cooker", "price": 100, "desc": desc},
-    "2": {"name": "Electric kettle", "price": 80, "desc": desc},
-    "3": {"name": "Blender", "price": 60, "desc": desc}
-}
-
-categorykb = InlineKeyboardMarkup(row_width=2)
-btn1 = InlineKeyboardButton("Category 1", callback_data="c1")
-btn2 = InlineKeyboardButton("Category 2", callback_data="c2")
-btn3 = InlineKeyboardButton("Category 3", callback_data="c3")
-btn4 = InlineKeyboardButton("Category 4", callback_data="c4")
-categorykb.add(btn1, btn2, btn3, btn4)
-
-
-def Productkb(i):
+def productkb(i, cat):
+    products = session.query(Product).filter_by(category=cat).count()
     kb = InlineKeyboardMarkup()
     kb.add(InlineKeyboardButton("Buy", pay=True), InlineKeyboardButton("Add to cart🛒", callback_data=f"+cart{i}"))
-    if i != "1":
-        prev = InlineKeyboardButton("🔼 Previous", callback_data=int(i)-1)
+    if i != 1:
+        prev = InlineKeyboardButton("🔼 Previous", callback_data=f"p{i-1}")
         kb.add(prev)
-    if i != len(products):
-        next_ = InlineKeyboardButton("🔽 Next", callback_data=int(i)+1)
+    if i != products:
+        next_ = InlineKeyboardButton("🔽 Next", callback_data=f"p{i+1}")
         kb.add(next_)
     return kb
 
 
-def get_product_details(product_details):
-    return f"<b>{product_details['name']}</b>\nPrice: <b>${product_details['price']}</b>\nDescription: {desc}"
-
-
 @bot.message_handler(["start"])
 def start(message):
-    bot.send_message(
-        message.chat.id, "Hello welcome to the store.\n\nWhat category would you like to browse", reply_markup=categorykb)
+    bot.send_message(message.chat.id, "<b>Hello welcome to the store!!</b>", reply_markup=kb)
 
+@bot.message_handler(["admin"], func=lambda message: message.chat.id == owner)
+def admin(message):
+    bot.send_message(message.chat.id, "<b>Hello Admin !</b> What will you like to edit today?", reply_markup=Admin.keyboard)
+
+@bot.message_handler(func=lambda msg: msg.text != None)
+def message_handler(message: Message):
+    if message.text == "Prodotti":
+        bot.send_message(message.chat.id, "What category would you like to browse?", reply_markup=Customer.get_categories())
 
 @bot.callback_query_handler(func=lambda call: call.data != None)
 def callback_handler(call: CallbackQuery):
     message = call.message
 
-    if call.data.startswith("c"):
-        call.data = call.data.strip("c")
-        if call.data.isdigit():
-            product_details = products["1"]
-            send_invoice(message, product_details, "1")
-    elif call.data.isdigit():
-        product_details = products.get(call.data)
+    if call.data.startswith("cp"):
+        cat, prod = call.data.strip("cp").split(":")
+        product = session.query(Product).filter_by(id=int(prod), category=int(cat)).first()
         bot.delete_message(message.chat.id, message.id)
-        if not product_details:
-            bot.send_message(call.message.chat.id, "Product is unavailable!☹️")
+        if not product:
+            bot.send_message(message.chat.id, "Product is unavailable!☹️")
             return
-        send_invoice(message, product_details, call.data)
+        send_invoice(message, product, cat)
 
-def send_invoice(message:Message, product_details, prod_id):
+    if call.data.startswith("admin_") and message.chat.id == owner:
+        data = call.data[6:]
+        if data == "newproduct":
+            bot.send_message(message.chat.id, "What is the name of product?")
+            bot.register_next_step_handler(message, add_product)
+        elif data in ["products", "prod_back"]:
+            bot.edit_message_text("Select Product", message.chat.id, message.id, reply_markup=Admin.get_products())
+        elif data.startswith("p") and data[1:].isdigit():
+            product = session.query(Product).get(int(data[1:]))
+            bot.edit_message_text(f"Edit Product\nName: {product.name}\nPrice: {product.price}\nDescription: {product.description}", message.chat.id, message.id, reply_markup=Admin.edit_product(data[1:]))
+        elif data.startswith("e") and data[1] in ["n", "p", "d"]:
+            product_id = data[3:]
+            n = {"n":"name", "p":"price", "d": "description"}
+            bot.send_message(message.chat.id, f"Send the new {n[data[1]]}")
+            bot.register_next_step_handler(message, edit_product, data[1], product_id)
+
+def add_product(message):
+    if is_cancel(message): return
+    bot.send_message(message.chat.id, "What price is it (in $) e.g 100, 200 e.t.c")
+    details = {"name": message.text}
+    bot.register_next_step_handler(message, add_price, details)
+
+def add_price(message, details):
+    if is_cancel(message): return
+    try:
+        details["price"] = float(message.text)
+    except ValueError:
+        bot.send_message(message.chat.id, "Only numbers allowed. Try again")
+        bot.register_next_step_handler(message, add_price, details)
+        return
+    bot.send_message(message.chat.id, "What is the description?")
+    bot.register_next_step_handler(message, add_desc, details)
+
+def add_desc(message, details):
+    if is_cancel(message): return
+    details["description"] = message.text
+    session.add(Product(**details, category=1))
+    session.commit()
+    bot.send_message(message.chat.id, "Product added successfully!!!")
+    admin(message)
+
+def edit_product(message, pty, pid):
+    product = session.query(Product).get(pid)
+    n = {"n":product.name, "p":product.price, "d": product.description}
+    if pty == "n":
+        product.name = message.text
+    elif pty == "d":
+        product.description = message.text
+    elif pty == "p":
+        try:
+            product.price = float(message.text)
+        except ValueError:
+            bot.send_message(message.chat.id, "Only numbers allowed. Try again")            
+            bot.register_next_step_handler(message, edit_product, pty, pid)
+            return
+    session.commit()
+    bot.send_message(message.chat.id, "Product updated !!!")
+    bot.send_message(message.chat.id, f"Edit Product\nName: {product.name}\nPrice: {product.price}\nDescription: {product.description}", reply_markup=Admin.edit_product(pid))
+
+def is_cancel(message):
+    if message.text in ["/start", "/cancel", "/admin"]:
+        bot.send_message(message.chat.id, "Operation cancelled")
+        bot.clear_step_handler(message)
+        globals()[message.text[1:]]()
+        return True
+    return False
+
+def send_invoice(message:Message, product:Product, cat):
     bot.send_invoice(
-        message.chat.id, product_details['name'], product_details["desc"], 
-        "true", stripe_token, "usd",
-        [LabeledPrice(product_details['name'], product_details['price']*100)], reply_markup=Productkb(prod_id))
+        message.chat.id, product.name, product.description,
+        "true", stripe_token, "usd", [LabeledPrice(product.name, int(product.price*100))], reply_markup=productkb(product.id, cat))
 
+# session.add(Category(name="category 1"))
+# session.commit()
 print("Started")
 bot.infinity_polling()
