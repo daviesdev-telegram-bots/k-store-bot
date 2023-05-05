@@ -1,4 +1,4 @@
-from sqlalchemy import Float, create_engine, Column, Text, Integer, ForeignKey
+from sqlalchemy import Float, create_engine, Column, Text, Integer, ForeignKey, String
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 import dotenv, os
@@ -13,7 +13,8 @@ class Product(base):
     description = Column(Text)
     price = Column(Float)
     shipping = Column(Text, nullable=True)
-    category = Column(Integer, ForeignKey('category.id'))
+    image = Column(Text, nullable=True, default=None)
+    category = Column(Integer, ForeignKey('category.id'), nullable=True)
 
 class Category(base):
     __tablename__ = "category"

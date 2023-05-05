@@ -17,7 +17,7 @@ class Customer:
         categorykb = InlineKeyboardMarkup(row_width=2)
         categories = session.query(Category).all()
         for cat in categories:
-            btn = InlineKeyboardButton(cat.name, callback_data=f"cp{cat.id}:1")
+            btn = InlineKeyboardButton(cat.name, callback_data=f"cp{cat.id}:{cat.products[0].id}")
             categorykb.add(btn)
         return categorykb
 
@@ -28,6 +28,7 @@ class Admin:
     products = InlineKeyboardButton("Products", callback_data="admin_products")
     keyboard.add(add_product)
     keyboard.add(products)
+    keyboard.add(InlineKeyboardButton("Create category", callback_data="admin_create_cat"))
 
     @staticmethod
     def get_products():
