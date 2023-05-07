@@ -2,6 +2,7 @@ from telebot import TeleBot
 from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, LabeledPrice, Message, ReplyKeyboardMarkup, KeyboardButton
 from dotenv import load_dotenv
 import os, json, random
+from imgbb import ImgBB
 from kb import *
 from models import session, Product
 
@@ -61,9 +62,11 @@ def callback_handler(call: CallbackQuery):
             bot.send_message(message.chat.id, "What is the name of product?")
             bot.register_next_step_handler(message, add_product)
         elif data in ["products", "prod_back"]:
+            bot.clear_step_handler(message)
             bot.edit_message_text("Select Product", message.chat.id, message.id, reply_markup=Admin.get_products())
         
         elif data in ["categories", "cat_back"]:
+            bot.clear_step_handler(message)
             bot.edit_message_text("Select a category", message.chat.id, message.id, reply_markup=Admin.get_categories())
         
         elif data == "home":
@@ -104,7 +107,7 @@ def callback_handler(call: CallbackQuery):
             _, prod_id = data.split(":")
             name = session.query(Product).get(int(prod_id)).name
             kb = InlineKeyboardMarkup()
-            kb.add(InlineKeyboardButton("✅Yes", callback_data=f"confirm_del:{prod_id}"), InlineKeyboardButton("❌ No", callback_data=f"admin_prod_back"))
+            kb.add(InlineKeyboardButton("✅Yes", callback_data=f"admin_confirm_del:{prod_id}"), InlineKeyboardButton("❌ No", callback_data=f"admin_prod_back"))
             bot.edit_message_text("Are you sure you want to delete "+name.upper(), message.chat.id, message.id, reply_markup=kb)
 
         elif data.startswith("confirm_del"):
@@ -179,7 +182,8 @@ def random_string():
 
 def add_image(message:Message, details):
     if is_cancel(message): return
-    details["image"] = message.photo[1].file_id
+    res = ImgBB.upload_file(bot.get_file_url(message.photo[1].file_id))
+    details["image"] = res["data"]["display_url"]
     product = Product(**details)
     session.add(product)
     session.commit()
@@ -208,9 +212,10 @@ def edit_product(message, pty, pid):
 def edit_image(message, prod_id):
     if is_cancel(message): return
     p = session.query(Product).get(prod_id)
-    p.image = message.photo[1].file_id
+    res = ImgBB.upload_file(bot.get_file_url(message.photo[1].file_id))
+    p.image = res["data"]["display_url"]
     session.commit()
-    bot.send_message(message.chat.id, p+" Image has been replaced!", reply_markup=InlineKeyboardMarkup().add(Admin.back))
+    bot.send_message(message.chat.id, p.name+" Image has been replaced!", reply_markup=InlineKeyboardMarkup().add(Admin.back))
 
 def is_cancel(message):
     if message.text in ["/start", "/cancel", "/admin"]:
@@ -223,7 +228,7 @@ def is_cancel(message):
 def send_invoice(message:Message, product:Product, cat):
     bot.send_invoice(
         message.chat.id, product.name, product.description,
-        "true", stripe_token, "usd", [LabeledPrice(product.name, int(product.price*100))], photo_url=bot.get_file_url(product.image) if product.image else None, reply_markup=productkb(product.id, cat))
+        "true", stripe_token, "usd", [LabeledPrice(product.name, int(product.price*100))], photo_url=product.image, reply_markup=productkb(product.id, cat))
 
 bot.enable_save_next_step_handlers(1)
 print("Started")

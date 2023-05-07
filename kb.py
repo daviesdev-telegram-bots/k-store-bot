@@ -39,9 +39,7 @@ class Admin:
     @staticmethod
     def get_products():
         kb = InlineKeyboardMarkup()
-        for prod in session.query(Product).all():
-            product = InlineKeyboardButton(prod.name, callback_data=f"admin_p{prod.id}")
-            kb.add(product)
+        kb.add(*[InlineKeyboardButton(prod.name, callback_data=f"admin_p{prod.id}") for prod in session.query(Product).all()[::-1]])
         kb.add(Admin.home)
         return kb
     
@@ -55,8 +53,7 @@ class Admin:
         edit_category = InlineKeyboardButton("Edit Category", callback_data=f"admin_ec_{product_id}")
         delete = InlineKeyboardButton("❌ DELETE", callback_data=f"admin_del:{product_id}")
         kb.add(edit_name, edit_price, edit_desc, edit_category, edit_image)
-        kb.add(delete)
-        kb.add(Admin.back)
+        kb.add(delete, kb.add(Admin.back))
         return kb
     
     def edit_category(cat_id):
