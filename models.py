@@ -14,6 +14,9 @@ class Product(base):
     price = Column(Float)
     shipping = Column(Text, nullable=True)
     image = Column(Text, nullable=True, default=None)
+    image_delete = Column(Text, nullable=True, default=None)
+    image_height = Column(Integer, nullable=True, default=None)
+    image_width = Column(Integer, nullable=True, default=None)
     category = Column(Integer, ForeignKey('category.id'), nullable=True)
 
 class Category(base):

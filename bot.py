@@ -1,5 +1,5 @@
 from telebot import TeleBot
-from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, LabeledPrice, Message, ReplyKeyboardMarkup, KeyboardButton
+from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, LabeledPrice, Message
 from dotenv import load_dotenv
 import os, json, random
 from imgbb import ImgBB
@@ -182,8 +182,15 @@ def random_string():
 
 def add_image(message:Message, details):
     if is_cancel(message): return
-    res = ImgBB.upload_file(bot.get_file_url(message.photo[1].file_id))
+    if not message.document:
+        bot.send_message(message.chat.id, "Please send the image as a file")
+        bot.register_next_step_handler(message, add_image, details)
+        return
+    res = ImgBB.upload_file(bot.get_file_url(message.document.file_id))
     details["image"] = res["data"]["display_url"]
+    details["image_width"] = res["data"]["width"]
+    details["image_height"] = res["data"]["height"]
+    details["image_delete"] = res["data"]["delete_url"]
     product = Product(**details)
     session.add(product)
     session.commit()
@@ -211,16 +218,25 @@ def edit_product(message, pty, pid):
 
 def edit_image(message, prod_id):
     if is_cancel(message): return
+    if not message.document:
+        bot.send_message(message.chat.id, "Please send the image as a file")
+        bot.register_next_step_handler(message, edit_image, prod_id)
+        return
     p = session.query(Product).get(prod_id)
-    res = ImgBB.upload_file(bot.get_file_url(message.photo[1].file_id))
+    res = ImgBB.upload_file(bot.get_file_url(message.document.file_id))
+    if p.image_delete:
+        ImgBB.delete_file(p.image_delete)
     p.image = res["data"]["display_url"]
+    p.image_width = res["data"]["width"]
+    p.image_height = res["data"]["height"]
+    p.image_delete = res["data"]["delete_url"]
     session.commit()
     bot.send_message(message.chat.id, p.name+" Image has been replaced!", reply_markup=InlineKeyboardMarkup().add(Admin.back))
 
 def is_cancel(message):
-    if message.text in ["/start", "/cancel", "/admin"]:
-        bot.send_message(message.chat.id, "Operation cancelled")
+    if message.text in ["/start", "/admin"]:
         bot.clear_step_handler(message)
+        bot.send_message(message.chat.id, "Operation cancelled")
         globals()[message.text[1:]](message)
         return True
     return False
@@ -228,7 +244,7 @@ def is_cancel(message):
 def send_invoice(message:Message, product:Product, cat):
     bot.send_invoice(
         message.chat.id, product.name, product.description,
-        "true", stripe_token, "usd", [LabeledPrice(product.name, int(product.price*100))], photo_url=product.image, reply_markup=productkb(product.id, cat))
+        "true", stripe_token, "usd", [LabeledPrice(product.name, int(product.price*100))], photo_url=product.image, photo_width=product.image_width, photo_height=product.image_height, reply_markup=productkb(product.id, cat))
 
 bot.enable_save_next_step_handlers(1)
 print("Started")
