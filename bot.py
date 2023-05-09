@@ -156,7 +156,7 @@ def change_category_name(message, cat_id):
 
 def add_product(message):
     if is_cancel(message): return
-    bot.send_message(message.chat.id, "What price is it (in $) e.g 100, 200 e.t.c")
+    bot.send_message(message.chat.id, "What price is it (in €) e.g 100, 200 e.t.c")
     details = {"name": message.text}
     bot.register_next_step_handler(message, add_price, details)
 
@@ -242,10 +242,31 @@ def is_cancel(message):
     return False
 
 def send_invoice(message:Message, product:Product, cat):
+    shipping_cost = 6.5 if product.price < 49.99 else 0
+    shipping = LabeledPrice("Shipping", shipping_cost*100)
     bot.send_invoice(
         message.chat.id, product.name, product.description,
-        "true", stripe_token, "usd", [LabeledPrice(product.name, int(product.price*100))], photo_url=product.image, photo_width=product.image_width, photo_height=product.image_height, reply_markup=productkb(product.id, cat))
+        product.name, stripe_token, "eur", [LabeledPrice(product.name, int(product.price*100)), shipping], photo_url=product.image, photo_width=product.image_width, photo_height=product.image_height, need_email=True, need_shipping_address=True, send_email_to_provider=True, reply_markup=productkb(product.id, cat))
 
-bot.enable_save_next_step_handlers(1)
+@bot.pre_checkout_query_handler(func=lambda query: True)
+def checkout(pre_checkout_query):
+    bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True, error_message="Something went wrong with the payment. Please Try again.")
+
+@bot.message_handler(content_types=['successful_payment'])
+def got_payment(message:Message):
+    email = message.successful_payment.order_info.email
+    shipping_address = message.successful_payment.order_info.shipping_address
+    bot.send_message(message.chat.id, f'Your purchase of {message.successful_payment.invoice_payload} was successful✅.\nYour package will be shipped shortly')
+
+    for admin in owners:
+        bot.send_message(admin, f"Just got a new order from @{message.chat.username} ({email}) for a {message.successful_payment.invoice_payload}.\n\n<b>Shipping Address</b>\n"\
+                         f"Country code: {shipping_address.country_code}\n"\
+                         f"State: {shipping_address.state}\n"\
+                         f"City: {shipping_address.city}\n"\
+                         f"street line1: {shipping_address.street_line1}\n"\
+                         f"street line2: {shipping_address.street_line2}\n"\
+                         f"Post code: {shipping_address.post_code}")
+
+bot.enable_save_next_step_handlers(120)
 print("Started")
 bot.infinity_polling()
