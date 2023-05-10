@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 import os, json, random
 from imgbb import ImgBB
 from kb import *
-from models import session, Product
+from models import session, Product, Cart, Cartproduct
 
 load_dotenv()
 
@@ -20,7 +20,7 @@ def productkb(i, cat):
     index = category.index(prod)
 
     kb = InlineKeyboardMarkup()
-    kb.add(InlineKeyboardButton("Buy", pay=True), InlineKeyboardButton("Add to cart🛒", callback_data=f"+cart{i}"))
+    kb.add(InlineKeyboardButton("Buy", pay=True), InlineKeyboardButton("🛒Add to cart", callback_data=f"+cart{i}"))
     if i != fproduct.id:
         prev = InlineKeyboardButton("🔼 Previous", callback_data=f"cp{cat}:{category[index-1].id}")
         kb.add(prev)
@@ -38,10 +38,29 @@ def start(message):
 def admin(message):
     bot.send_message(message.chat.id, "<b>Hello Admin !</b> What will you like to edit today?", reply_markup=Admin.keyboard)
 
+@bot.message_handler(["cart"])
+def view_cart(message):
+    kb = InlineKeyboardMarkup(row_width=2)
+    user = session.query(Cart).get(message.chat.id)
+    if not user or len(user.products) <= 0:
+        bot.send_message(message.chat.id, "Your cart is empty!\n\nClick /products to browse")
+        return
+    for p in user.products:
+        prod = session.query(Product).get(p.product_id)
+        kb.add(InlineKeyboardButton(prod.name, callback_data=f"{prod.id}"), InlineKeyboardButton("🗑️ Remove", callback_data=f"-cart:{prod.id}"))
+    kb.add(InlineKeyboardButton("Checkout", callback_data="checkout"))
+    bot.send_message(message.chat.id, "<b>Cart !</b>", reply_markup=kb)
+
+@bot.message_handler(["products"])
+def list_products(message):
+    bot.send_message(message.chat.id, "What category would you like to browse?", reply_markup=Customer.get_categories())
+
 @bot.message_handler(func=lambda msg: msg.text != None)
 def message_handler(message: Message):
     if message.text == "Prodotti":
-        bot.send_message(message.chat.id, "What category would you like to browse?", reply_markup=Customer.get_categories())
+        list_products(message)
+    if message.text == "Cart":
+        view_cart(message)
 
 @bot.callback_query_handler(func=lambda call: call.data != None)
 def callback_handler(call: CallbackQuery):
@@ -55,6 +74,45 @@ def callback_handler(call: CallbackQuery):
             bot.send_message(message.chat.id, "Product is unavailable!☹️")
             return
         send_invoice(message, product, cat)
+
+    elif call.data.startswith("+cart"):
+        prod_id = call.data[5:]
+        user = get_user(message.chat.id)
+        session.add(Cartproduct(product_id=int(prod_id), cart=user.id))
+        session.commit()
+        bot.answer_callback_query(call.id, f"Added to cart✅", True)
+
+    elif call.data.startswith("-cart"):
+        _, prod_id = call.data.split(":")
+        user = get_user(message.chat.id)
+        c = session.query(Cartproduct).filter(Cartproduct.product_id==prod_id, Cartproduct.cart==user.id).first()
+        if c:
+            session.delete(c)
+            session.commit()
+        total = 0
+        kb = InlineKeyboardMarkup()
+        for p in user.products:
+            prod = session.query(Product).get(p.product_id)
+            total += prod.price
+            kb.add(InlineKeyboardButton(prod.name, callback_data=f"{prod.id}"), InlineKeyboardButton("🗑️ Remove", callback_data=f"-cart:{prod.id}"))
+        kb.add(InlineKeyboardButton("Checkout", callback_data=f"checkout"))
+        bot.edit_message_text(f"Total: €{total}", message.chat.id, message.id, reply_markup=kb)
+    
+    elif call.data == "checkout":
+        prices = []
+        text = ""
+        user = get_user(message.chat.id)
+        total = 0
+        for p in user.products:
+            prod = session.query(Product).get(p.product_id)
+            prices.append(LabeledPrice(prod.name, int(prod.price*100)))
+            text += f"{prod.name} - €{prod.price} "
+            total += prod.price
+        shipping_cost = 6.5 if total < 49.99 else 0 
+        prices.append(LabeledPrice("Shipping", int(shipping_cost*100)))
+        kb = InlineKeyboardMarkup()
+        kb.add(InlineKeyboardButton("Pay", pay=True))
+        bot.send_invoice(message.chat.id, "Your Order", text, "cart", stripe_token, "eur", prices, need_email=True, need_shipping_address=True, send_email_to_provider=True, reply_markup=kb)
 
     if call.data.startswith("admin_") and message.chat.id in owners:
         data = call.data[6:]
@@ -243,10 +301,18 @@ def is_cancel(message):
 
 def send_invoice(message:Message, product:Product, cat):
     shipping_cost = 6.5 if product.price < 49.99 else 0
-    shipping = LabeledPrice("Shipping", shipping_cost*100)
+    shipping = LabeledPrice("Shipping", int(shipping_cost*100))
     bot.send_invoice(
         message.chat.id, product.name, product.description,
         product.name, stripe_token, "eur", [LabeledPrice(product.name, int(product.price*100)), shipping], photo_url=product.image, photo_width=product.image_width, photo_height=product.image_height, need_email=True, need_shipping_address=True, send_email_to_provider=True, reply_markup=productkb(product.id, cat))
+
+def get_user(user_id):
+    user = session.query(Cart).get(user_id)
+    if not user:
+        user = Cart(id=user_id)
+        session.add(user)
+        session.commit()
+    return user
 
 @bot.pre_checkout_query_handler(func=lambda query: True)
 def checkout(pre_checkout_query):
@@ -256,10 +322,20 @@ def checkout(pre_checkout_query):
 def got_payment(message:Message):
     email = message.successful_payment.order_info.email
     shipping_address = message.successful_payment.order_info.shipping_address
-    bot.send_message(message.chat.id, f'Your purchase of {message.successful_payment.invoice_payload} was successful✅.\nYour package will be shipped shortly')
+    if message.successful_payment.invoice_payload == "cart":
+        products = get_user(message.chat.id).products
+        text = "\n"
+        for i in products:
+            prod = session.query(Product).get(i.product_id)
+            text += f"<b>{prod.name}</b> - €{prod.price}\n"
+            session.delete(i)
+        session.commit()
+    else:
+        text = message.successful_payment.invoice_payload
+    bot.send_message(message.chat.id, f'Your purchase of{text}was successful✅.\nYour package will be shipped shortly')
 
     for admin in owners:
-        bot.send_message(admin, f"Just got a new order from @{message.chat.username} ({email}) for a {message.successful_payment.invoice_payload}.\n\n<b>Shipping Address</b>\n"\
+        bot.send_message(admin, f"Just got a new order from @{message.chat.username} ({email}) for {text}\n<b>Shipping Address</b>\n"\
                          f"Country code: {shipping_address.country_code}\n"\
                          f"State: {shipping_address.state}\n"\
                          f"City: {shipping_address.city}\n"\

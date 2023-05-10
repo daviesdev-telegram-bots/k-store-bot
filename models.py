@@ -25,6 +25,17 @@ class Category(base):
     name = Column(Text)
     products = relationship('Product')
 
+class Cart(base):
+    __tablename__ = "cart"
+    id = Column(Integer, primary_key=True)
+    products = relationship('Cartproduct')
+
+class Cartproduct(base):
+    __tablename__ = "cartproduct"
+    id = Column(Integer, primary_key=True)
+    product_id = Column(Integer)
+    cart = Column(Integer, ForeignKey('cart.id'), nullable=True)
+
 engine = create_engine(os.getenv("DB_URL"))
 connection = engine.connect()
 base.metadata.create_all(bind=engine)

@@ -4,11 +4,12 @@ from models import session, Product, Category
 kb = ReplyKeyboardMarkup()
 products = KeyboardButton("Prodotti")
 shipping = KeyboardButton("Spedizione")
+cart = KeyboardButton("Cart")
 about_us = KeyboardButton("Chi siamo")
 contact = KeyboardButton("Contatti")
 terms = KeyboardButton("Termini e Condizioni")
 faq = KeyboardButton("FAQ")
-kb.add(products, shipping)
+kb.add(products, cart, shipping)
 kb.add(about_us, contact, terms, faq)
 
 class Customer:
