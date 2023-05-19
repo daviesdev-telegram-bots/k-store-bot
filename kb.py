@@ -26,16 +26,21 @@ class Customer:
 
 class Admin:
     back = InlineKeyboardButton("Back", callback_data=f"admin_prod_back")
+    pending_order_back = InlineKeyboardButton("Back", callback_data=f"admin_pending_orders")
+    shipping_order_back = InlineKeyboardButton("Back", callback_data=f"admin_shipped_orders")
     cat_back = InlineKeyboardButton("Back", callback_data=f"admin_cat_back")
     home = InlineKeyboardButton("Back", callback_data=f"admin_home")
     keyboard = InlineKeyboardMarkup()
     add_product = InlineKeyboardButton("Add Product", callback_data="admin_newproduct")
     products = InlineKeyboardButton("View Products", callback_data="admin_products")
     categories = InlineKeyboardButton("View Categories", callback_data="admin_categories")
-    keyboard.add(add_product)
-    keyboard.add(InlineKeyboardButton("Create category", callback_data="admin_create_cat"))
-    keyboard.add(products)
-    keyboard.add(categories)
+    keyboard.add(add_product, InlineKeyboardButton("Create category", callback_data="admin_create_cat"))
+    keyboard.add(products, categories)
+    keyboard.add(InlineKeyboardButton("Manage orders", callback_data="admin_view_orders"))
+
+    view_orders_kb = InlineKeyboardMarkup()
+    view_orders_kb.add(InlineKeyboardButton("⌛Pending", callback_data="admin_pending_orders"), InlineKeyboardButton("🚚 Shipped", callback_data="admin_shipped_orders"))
+    view_orders_kb.add(home)
 
     @staticmethod
     def get_products():

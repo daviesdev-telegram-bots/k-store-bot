@@ -1,4 +1,4 @@
-from sqlalchemy import Float, create_engine, Column, Text, Integer, ForeignKey, String
+from sqlalchemy import Float, create_engine, Column, Text, Integer, ForeignKey, Boolean, String
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 import dotenv, os
@@ -35,6 +35,21 @@ class Cartproduct(base):
     id = Column(Integer, primary_key=True)
     product_id = Column(Integer)
     cart = Column(Integer, ForeignKey('cart.id'), nullable=True)
+
+class Orderproduct(base):
+    __tablename__ = "orderproduct"
+    id = Column(Integer, primary_key=True)
+    name = Column(Text)
+    order = Column(Integer, ForeignKey('order.id'), nullable=True)
+
+class Order(base):
+    __tablename__ = "order"
+    id = Column(Integer, primary_key=True)
+    userid = Column(Integer)
+    username = Column(String(200))
+    shipped = Column(Boolean, default=False)
+    shipping_address = Column(Text)
+    products = relationship("Orderproduct")
 
 engine = create_engine(os.getenv("DB_URL"))
 connection = engine.connect()
