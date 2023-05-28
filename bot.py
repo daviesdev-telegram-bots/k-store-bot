@@ -6,7 +6,7 @@ import json
 import random
 from imgbb import ImgBB
 from kb import *
-from models import session, Product, Cart, Cartproduct, Order, Orderproduct
+from models import session, Product, Cart, Cartproduct, Order, Orderproduct, Coupon
 
 load_dotenv()
 
@@ -158,6 +158,8 @@ def callback_handler(call: CallbackQuery):
         kb.add(InlineKeyboardButton("Pay", pay=True))
         bot.send_invoice(message.chat.id, "Your Order", ", ".join(text), "cart", stripe_token, "eur", prices,
                          need_email=True, need_shipping_address=True, send_email_to_provider=True, reply_markup=kb)
+        bot.send_message(message.chat.id, "Send a coupon code if you have.\nIf you dont, just continue to checkout with the button above☝️!")
+        bot.register_next_step_handler(message, get_coupon_code, message.id)
 
     if call.data.startswith("admin_") and message.chat.id in owners:
         data = call.data[6:]
@@ -173,7 +175,7 @@ def callback_handler(call: CallbackQuery):
             bot.edit_message_text(
                 "Select Product", message.chat.id, message.id, reply_markup=Admin.get_products())
 
-        elif data in ["categories", "cat_back"]:
+        elif data  == "categories":
             bot.clear_step_handler(message)
             bot.edit_message_text("Select a category", message.chat.id,
                                   message.id, reply_markup=Admin.get_categories())
@@ -214,7 +216,7 @@ def callback_handler(call: CallbackQuery):
             else:
                 prop = data[1]
             n = {"n": "name", "p": "price", "d": "description", "discount": "discount (%)"}
-            bot.send_message(message.chat.id, f"Send the new {n[prop]}")
+            bot.send_message(message.chat.id, f"Send the new {n[prop]}.\nUse /cancel to stop the process")
             bot.register_next_step_handler(message, edit_product, prop, product_id)
 
         elif data.startswith("create_cat"):
@@ -229,7 +231,7 @@ def callback_handler(call: CallbackQuery):
             bot.register_next_step_handler(
                 message, change_category_name, cat_id)
 
-        elif data.startswith("del"):
+        elif data.startswith("del_prod"):
             _, prod_id = data.split(":")
             name = session.query(Product).get(int(prod_id)).name
             kb = InlineKeyboardMarkup()
@@ -262,6 +264,47 @@ def callback_handler(call: CallbackQuery):
             session.commit()
             bot.send_message(message.chat.id, "Product added successfully!!!",
                              reply_markup=InlineKeyboardMarkup().add(Admin.back))
+
+        elif data.startswith("del_coupon"):
+            _, c_id = data.split(":")
+            c = session.query(Coupon).get(c_id)
+            session.delete(c)
+            session.commit()
+            bot.answer_callback_query(call.id, f"{c.code} deleted", True)
+            kb = InlineKeyboardMarkup()
+            coupons = session.query(Coupon).all()
+            for coupon in coupons:
+                if coupon.is_percent: t = f"{coupon.discount}%"
+                else: t = f"${coupon.discount}"
+                kb.add(InlineKeyboardButton(f"{coupon.code} (-{t})", callback_data=f"c.id"), InlineKeyboardButton("🗑️ Delete", callback_data=f"admin_del_coupon:{coupon.id}"))
+            kb.add(InlineKeyboardButton("➕ New Coupon", callback_data="admin_new_coupon"), Admin.home)
+            bot.edit_message_reply_markup(message.chat.id, message.id, reply_markup=kb)
+
+        elif data == "manage_coupon":
+            coupons = session.query(Coupon).all()
+            kb = InlineKeyboardMarkup()
+            for coupon in coupons:
+                if coupon.is_percent: t = f"{coupon.discount}%"
+                else: t = f"${coupon.discount}"
+                kb.add(InlineKeyboardButton(f"{coupon.code} (-{t})", callback_data=f"c.id"), InlineKeyboardButton("🗑️ Delete", callback_data=f"admin_del_coupon:{coupon.id}"))
+            kb.add(InlineKeyboardButton("➕ New Coupon", callback_data="admin_new_coupon"), Admin.home)
+            bot.edit_message_text("Coupons", message.chat.id, message.id, reply_markup=kb)
+
+        elif data == "new_coupon":
+            kb = InlineKeyboardMarkup()
+            kb.add(InlineKeyboardButton("Percentage", callback_data=f"admin_newcoupon_percent"), InlineKeyboardButton("Price", callback_data=f"admin_newcoupon_price"))
+            kb.add(InlineKeyboardButton("Back", callback_data="admin_manage_coupon"))
+            bot.edit_message_text("What type of coupon do you want to create", message.chat.id, message.id, reply_markup=kb)
+
+        elif data.startswith("newcoupon_"):
+            coupon_type = data[10:]
+            if coupon_type == "percent":
+                text = "How many % discount?"
+            elif coupon_type == "price":
+                text = "How much $ off?."
+            else: return
+            bot.send_message(message.chat.id, text+"\nOnly send numbers (e.g 20).\n\nUse /cancel to the process")
+            bot.register_next_step_handler(message, coupon_value, coupon_type)
 
         elif data == "view_orders":
             bot.edit_message_text(
@@ -299,6 +342,68 @@ def callback_handler(call: CallbackQuery):
             bot.edit_message_text("Order marked as Shipped✅", message.chat.id, message.id,
                                   reply_markup=InlineKeyboardMarkup().add(Admin.pending_order_back))
 
+def get_coupon_code(message, former_message_id):
+    if is_cancel(message):
+        return
+    if message.text:
+        coupon = session.query(Coupon).filter_by(code=message.text).first()
+        if coupon:
+            prices = []
+            text = []
+            user = get_user(message.chat.id)
+            total = 0
+            discount = 0
+            for p in user.products:
+                prod = session.query(Product).get(p.product_id)
+                prices.append(LabeledPrice(prod.name, int(prod.price*100)))
+                if prod.discount:
+                    discount += prod.price*prod.discount
+                total += prod.price
+                text.append(f"{prod.name} - €{prod.price}")
+            total -= discount/100
+            if coupon.is_percent:
+                v = -total*coupon.discount
+            else:
+                v = -coupon.discount*100
+            shipping_cost = 6.5 if total < 49.99 else 0
+            prices.append(LabeledPrice("Discount", -int(discount)))
+            prices.append(LabeledPrice("Coupon", int(v)))
+            prices.append(LabeledPrice("Shipping", int(shipping_cost*100)))
+            kb = InlineKeyboardMarkup()
+            kb.add(InlineKeyboardButton("Pay", pay=True))
+            bot.send_invoice(message.chat.id, "Your Order", ", ".join(text), "cart", stripe_token, "eur", prices,
+                            need_email=True, need_shipping_address=True, send_email_to_provider=True, reply_markup=kb)
+            bot.delete_message(message.chat.id, message.id)
+        else:
+            bot.send_message(message.chat.id, "Incorrect coupon code")
+
+def coupon_value(message, coupon_type):
+    if is_cancel(message):
+        return
+    try:
+        float(message.text)
+    except ValueError:
+        bot.send_message(message.chat.id, "Only numbers allowed. Try again")
+        bot.register_next_step_handler(message, coupon_value, coupon_type)
+        return
+    bot.send_message(message.chat.id, "What will be the coupon code?.\nSend /random to give a random one")
+    bot.register_next_step_handler(message, create_coupon, coupon_type, float(message.text))
+
+def create_coupon(message, coupon_type, coupon_value):
+    if is_cancel(message):
+        return
+    if message.text == "/random":
+        code = random_coupon_code()
+    else:
+        code = message.text
+    coupon = Coupon(code=code, discount=coupon_value, is_percent=coupon_type == "percent")
+    session.add(coupon)
+    session.commit()
+    bot.send_message(message.chat.id, f"Coupon <b>{code}</b> has been created", reply_markup=InlineKeyboardMarkup().add(InlineKeyboardButton("Back", callback_data="admin_manage_coupon")))
+
+letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+def random_coupon_code():
+    return ''.join(random.choice(letters) for x in range(7))
 
 def new_category(message):
     if message.text:
@@ -358,10 +463,6 @@ def add_desc(message, details):
     bot.register_next_step_handler(message, add_image, details)
 
 
-def random_string():
-    return str(random.randint(1000, 9999))
-
-
 def add_image(message: Message, details):
     if is_cancel(message):
         return
@@ -386,6 +487,8 @@ def add_image(message: Message, details):
 
 
 def edit_product(message, pty, pid):
+    if is_cancel(message):
+        return
     product = session.query(Product).get(pid)
     if pty == "n":
         product.name = message.text
@@ -438,10 +541,11 @@ def edit_image(message, prod_id):
 
 
 def is_cancel(message):
-    if message.text in ["/start", "/admin"]:
+    if message.text in ["/start", "/admin", "/cancel"]:
         bot.clear_step_handler(message)
         bot.send_message(message.chat.id, "Operation cancelled")
-        globals()[message.text[1:]](message)
+        if message.text != "/cancel":
+            globals()[message.text[1:]](message)
         return True
     return False
 

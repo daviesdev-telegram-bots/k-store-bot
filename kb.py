@@ -29,7 +29,7 @@ class Admin:
     back = InlineKeyboardButton("Back", callback_data=f"admin_prod_back")
     pending_order_back = InlineKeyboardButton("Back", callback_data=f"admin_pending_orders")
     shipping_order_back = InlineKeyboardButton("Back", callback_data=f"admin_shipped_orders")
-    cat_back = InlineKeyboardButton("Back", callback_data=f"admin_cat_back")
+    cat_back = InlineKeyboardButton("Back", callback_data=f"admin_categories")
     home = InlineKeyboardButton("Back", callback_data=f"admin_home")
     keyboard = InlineKeyboardMarkup()
     add_product = InlineKeyboardButton("Add Product", callback_data="admin_newproduct")
@@ -37,7 +37,7 @@ class Admin:
     categories = InlineKeyboardButton("View Categories", callback_data="admin_categories")
     keyboard.add(add_product, InlineKeyboardButton("Create category", callback_data="admin_create_cat"))
     keyboard.add(products, categories)
-    keyboard.add(InlineKeyboardButton("Manage orders", callback_data="admin_view_orders"))
+    keyboard.add(InlineKeyboardButton("Manage orders", callback_data="admin_view_orders"), InlineKeyboardButton("Manage Coupons", callback_data="admin_manage_coupon"))
 
     def get_keyboard(active):
         kb = deepcopy(Admin.keyboard)
@@ -63,7 +63,7 @@ class Admin:
         edit_image = InlineKeyboardButton("Replace Image", callback_data=f"admin_ei_{product_id}")
         edit_category = InlineKeyboardButton("Edit Category", callback_data=f"admin_ec_{product_id}")
         edit_discount = InlineKeyboardButton("Edit Discount", callback_data=f"admin_ediscount_{product_id}")
-        delete = InlineKeyboardButton("❌ DELETE", callback_data=f"admin_del:{product_id}")
+        delete = InlineKeyboardButton("❌ DELETE", callback_data=f"admin_del_prod:{product_id}")
         kb.add(edit_name, edit_price, edit_desc, edit_category, edit_image, edit_discount)
         kb.add(delete, Admin.back)
         return kb
