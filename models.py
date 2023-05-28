@@ -12,6 +12,7 @@ class Product(base):
     name = Column(Text)
     description = Column(Text)
     price = Column(Float)
+    discount = Column(Float, default=0.0)
     shipping = Column(Text, nullable=True)
     image = Column(Text, nullable=True, default=None)
     image_delete = Column(Text, nullable=True, default=None)
@@ -50,6 +51,13 @@ class Order(base):
     shipped = Column(Boolean, default=False)
     shipping_address = Column(Text)
     products = relationship("Orderproduct")
+
+class Coupon(base):
+    __tablename__ = "coupon"
+    id = Column(Integer, primary_key=True)
+    code = Column(Text)
+    discount = Column(Float)
+    is_percent = Column(Boolean)
 
 engine = create_engine(os.getenv("DB_URL"))
 connection = engine.connect()

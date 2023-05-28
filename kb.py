@@ -1,5 +1,6 @@
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from models import session, Product, Category
+from copy import deepcopy
 
 kb = ReplyKeyboardMarkup()
 products = KeyboardButton("Prodotti")
@@ -38,6 +39,10 @@ class Admin:
     keyboard.add(products, categories)
     keyboard.add(InlineKeyboardButton("Manage orders", callback_data="admin_view_orders"))
 
+    def get_keyboard(active):
+        kb = deepcopy(Admin.keyboard)
+        return kb.add(InlineKeyboardButton("Bot is inactive 🤖" if not active else "Bot is Active ✅", callback_data="admin_toggle_active"))
+
     view_orders_kb = InlineKeyboardMarkup()
     view_orders_kb.add(InlineKeyboardButton("⌛Pending", callback_data="admin_pending_orders"), InlineKeyboardButton("🚚 Shipped", callback_data="admin_shipped_orders"))
     view_orders_kb.add(home)
@@ -57,8 +62,9 @@ class Admin:
         edit_desc = InlineKeyboardButton("Edit Description", callback_data=f"admin_ed_{product_id}")
         edit_image = InlineKeyboardButton("Replace Image", callback_data=f"admin_ei_{product_id}")
         edit_category = InlineKeyboardButton("Edit Category", callback_data=f"admin_ec_{product_id}")
+        edit_discount = InlineKeyboardButton("Edit Discount", callback_data=f"admin_ediscount_{product_id}")
         delete = InlineKeyboardButton("❌ DELETE", callback_data=f"admin_del:{product_id}")
-        kb.add(edit_name, edit_price, edit_desc, edit_category, edit_image)
+        kb.add(edit_name, edit_price, edit_desc, edit_category, edit_image, edit_discount)
         kb.add(delete, Admin.back)
         return kb
     

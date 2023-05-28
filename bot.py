@@ -12,12 +12,9 @@ load_dotenv()
 
 bot_token = os.getenv("bot_token")
 stripe_token = os.getenv("stripe_token")
-paypal_client_id = os.getenv("paypal_client_id")
-paypal_secret = os.getenv("paypal_secret")
-stripe_token = os.getenv("stripe_token")
 owners = json.loads(os.getenv("owners"))
 bot = TeleBot(bot_token, parse_mode="HTML")
-
+active = True
 
 def productkb(i, cat):
     category = session.query(Category).get(cat).products
@@ -38,9 +35,17 @@ def productkb(i, cat):
         kb.add(next_)
     return kb
 
+def set_active(v):
+    global active
+    active = v
+    return v
+
 
 @bot.message_handler(["start"])
 def start(message):
+    if not active:
+        bot.send_message(message.chat.id, "Bot 🤖 is not active now. Please try again later!")
+        return
     bot.send_message(
         message.chat.id, "<b>Hello welcome to the store!!</b>", reply_markup=kb)
 
@@ -48,11 +53,13 @@ def start(message):
 @bot.message_handler(["admin"], func=lambda message: message.chat.id in owners)
 def admin(message):
     bot.send_message(
-        message.chat.id, "<b>Hello Admin !</b> What will you like to edit today?", reply_markup=Admin.keyboard)
-
+        message.chat.id, "<b>Hello Admin !</b> What will you like to edit today?", reply_markup=Admin.get_keyboard(active))
 
 @bot.message_handler(["cart"])
 def view_cart(message):
+    if not active:
+        bot.send_message(message.chat.id, "Bot 🤖 is not active now. Please try again later!")
+        return
     kb = InlineKeyboardMarkup(row_width=2)
     user = session.query(Cart).get(message.chat.id)
     if not user or len(user.products) <= 0:
@@ -69,12 +76,18 @@ def view_cart(message):
 
 @bot.message_handler(["products"])
 def list_products(message):
+    if not active:
+        bot.send_message(message.chat.id, "Bot 🤖 is not active now. Please try again later!")
+        return
     bot.send_message(message.chat.id, "What category would you like to browse?",
                      reply_markup=Customer.get_categories())
 
 
 @bot.message_handler(func=lambda msg: msg.text != None)
 def message_handler(message: Message):
+    if not active:
+        bot.send_message(message.chat.id, "Bot 🤖 is not active now. Please try again later!")
+        return
     if message.text == "Prodotti":
         list_products(message)
     if message.text == "Cart":
@@ -84,6 +97,10 @@ def message_handler(message: Message):
 @bot.callback_query_handler(func=lambda call: call.data != None)
 def callback_handler(call: CallbackQuery):
     message = call.message
+
+    if not call.data.startswith("admin_") and not active:
+        bot.send_message(message.chat.id, "Bot 🤖 is not active now. Please try again later!")
+        return
 
     if call.data.startswith("cp"):
         cat, prod = call.data.strip("cp").split(":")
@@ -123,23 +140,31 @@ def callback_handler(call: CallbackQuery):
 
     elif call.data == "checkout":
         prices = []
-        text = ""
+        text = []
         user = get_user(message.chat.id)
         total = 0
+        discount = 0
         for p in user.products:
             prod = session.query(Product).get(p.product_id)
             prices.append(LabeledPrice(prod.name, int(prod.price*100)))
-            text += f"{prod.name} - €{prod.price} "
+            if prod.discount:
+                discount += prod.price*prod.discount
+            text.append(f"{prod.name} - €{prod.price}")
             total += prod.price
         shipping_cost = 6.5 if total < 49.99 else 0
+        prices.append(LabeledPrice("Discount", -int(discount)))
         prices.append(LabeledPrice("Shipping", int(shipping_cost*100)))
         kb = InlineKeyboardMarkup()
         kb.add(InlineKeyboardButton("Pay", pay=True))
-        bot.send_invoice(message.chat.id, "Your Order", text, "cart", stripe_token, "eur", prices,
+        bot.send_invoice(message.chat.id, "Your Order", ", ".join(text), "cart", stripe_token, "eur", prices,
                          need_email=True, need_shipping_address=True, send_email_to_provider=True, reply_markup=kb)
 
     if call.data.startswith("admin_") and message.chat.id in owners:
         data = call.data[6:]
+        if data == "toggle_active":
+            a = set_active(not active)
+            bot.edit_message_reply_markup(message.chat.id, message.id, reply_markup=Admin.get_keyboard(a))
+
         if data == "newproduct":
             bot.send_message(message.chat.id, "What is the name of product?")
             bot.register_next_step_handler(message, add_product)
@@ -155,12 +180,16 @@ def callback_handler(call: CallbackQuery):
 
         elif data == "home":
             bot.edit_message_text("<b>Hello Admin !</b> What will you like to edit today?",
-                                  message.chat.id, message.id, reply_markup=Admin.keyboard)
+                                  message.chat.id, message.id, reply_markup=Admin.get_keyboard(active))
 
         elif data.startswith("p") and data[1:].isdigit():
             product = session.query(Product).get(int(data[1:]))
-            bot.edit_message_text(f"Edit Product\nName: {product.name}\nPrice: {product.price}\nDescription: {product.description}",
-                                  message.chat.id, message.id, reply_markup=Admin.edit_product(data[1:]))
+            if product.discount != 0 and product.discount:
+                price_text = f"<s>${product.price}</s> ${product.price-(product.discount*product.price/100)} (-{product.discount}%)"
+            else:
+                price_text = f"${product.price} (No discount)"
+            bot.edit_message_text(f"Edit Product\nName: {product.name}\nPrice: {price_text}\nDescription: {product.description}",
+                                  message.chat.id, message.id, parse_mode="HTML", reply_markup=Admin.edit_product(data[1:]))
 
         elif data.startswith("editcat"):
             _, cat_id = data.split(":")
@@ -179,10 +208,14 @@ def callback_handler(call: CallbackQuery):
                                       message.id, reply_markup=InlineKeyboardMarkup().add(Admin.back))
                 bot.register_next_step_handler(message, edit_image, product_id)
                 return
-            n = {"n": "name", "p": "price", "d": "description"}
-            bot.send_message(message.chat.id, f"Send the new {n[data[1]]}")
-            bot.register_next_step_handler(
-                message, edit_product, data[1], product_id)
+            elif data.split("_")[0] == "ediscount":
+                prop = "discount"
+                product_id = data.split("_")[-1]
+            else:
+                prop = data[1]
+            n = {"n": "name", "p": "price", "d": "description", "discount": "discount (%)"}
+            bot.send_message(message.chat.id, f"Send the new {n[prop]}")
+            bot.register_next_step_handler(message, edit_product, prop, product_id)
 
         elif data.startswith("create_cat"):
             bot.send_message(
@@ -366,10 +399,22 @@ def edit_product(message, pty, pid):
                 message.chat.id, "Only numbers allowed. Try again")
             bot.register_next_step_handler(message, edit_product, pty, pid)
             return
+    elif pty == "discount":
+        try:
+            product.discount = float(message.text)
+        except ValueError:
+            bot.send_message(
+                message.chat.id, "Only numbers allowed. Try again")
+            bot.register_next_step_handler(message, edit_product, pty, pid)
+            return
     session.commit()
+    if product.discount != 0 and product.discount:
+        price_text = f"<s>${product.price}</s> ${product.price-(product.discount*product.price/100)} (-{product.discount}%)"
+    else:
+        price_text = f"{product.price} (No discount)"
     bot.send_message(message.chat.id, "Product updated !!!")
     bot.send_message(
-        message.chat.id, f"Edit Product\nName: {product.name}\nPrice: {product.price}\nDescription: {product.description}", reply_markup=Admin.edit_product(pid))
+        message.chat.id, f"Edit Product\nName: {product.name}\nPrice: {price_text}\nDescription: {product.description}", reply_markup=Admin.edit_product(pid))
 
 
 def edit_image(message, prod_id):
@@ -404,9 +449,13 @@ def is_cancel(message):
 def send_invoice(message: Message, product: Product, cat):
     shipping_cost = 6.5 if product.price < 49.99 else 0
     shipping = LabeledPrice("Shipping", int(shipping_cost*100))
+    prices = [LabeledPrice(product.name, int(product.price*100))]
+    if product.discount != 0 and product.discount:
+        prices.append(LabeledPrice("Discount", int(-1*product.discount*product.price)))
+    prices.append(shipping)
     bot.send_invoice(
         message.chat.id, product.name, product.description,
-        product.name, stripe_token, "eur", [LabeledPrice(product.name, int(product.price*100)), shipping], photo_url=product.image, photo_width=product.image_width, photo_height=product.image_height, need_email=True, need_shipping_address=True, send_email_to_provider=True, reply_markup=productkb(product.id, cat))
+        product.name, stripe_token, "eur", prices, photo_url=product.image, photo_width=product.image_width, photo_height=product.image_height, need_email=True, need_shipping_address=True, send_email_to_provider=True, reply_markup=productkb(product.id, cat))
 
 
 def get_user(user_id):
