@@ -5,7 +5,7 @@ from copy import deepcopy
 kb = ReplyKeyboardMarkup()
 products = KeyboardButton("Prodotti")
 shipping = KeyboardButton("Spedizione")
-cart = KeyboardButton("Cart")
+cart = KeyboardButton("Carrello")
 about_us = KeyboardButton("Chi siamo")
 contact = KeyboardButton("Contatti")
 terms = KeyboardButton("Termini e Condizioni")
@@ -26,26 +26,32 @@ class Customer:
 
 
 class Admin:
-    back = InlineKeyboardButton("Back", callback_data=f"admin_prod_back")
-    pending_order_back = InlineKeyboardButton("Back", callback_data=f"admin_pending_orders")
-    shipping_order_back = InlineKeyboardButton("Back", callback_data=f"admin_shipped_orders")
-    cat_back = InlineKeyboardButton("Back", callback_data=f"admin_categories")
-    home = InlineKeyboardButton("Back", callback_data=f"admin_home")
+    back = InlineKeyboardButton("Indietro", callback_data=f"admin_prod_back")
+    pending_order_back = InlineKeyboardButton("Indietro", callback_data=f"admin_pending_orders")
+    shipping_order_back = InlineKeyboardButton("Indietro", callback_data=f"admin_shipped_orders")
+    cat_back = InlineKeyboardButton("Indietro", callback_data=f"admin_categories")
+    home = InlineKeyboardButton("Indietro", callback_data=f"admin_home")
     keyboard = InlineKeyboardMarkup()
-    add_product = InlineKeyboardButton("Add Product", callback_data="admin_newproduct")
-    products = InlineKeyboardButton("View Products", callback_data="admin_products")
-    categories = InlineKeyboardButton("View Categories", callback_data="admin_categories")
-    keyboard.add(add_product, InlineKeyboardButton("Create category", callback_data="admin_create_cat"))
+    add_product = InlineKeyboardButton("Aggiungi prodotto", callback_data="admin_newproduct")
+    products = InlineKeyboardButton("Visualizza i prodotti", callback_data="admin_products")
+    categories = InlineKeyboardButton("Visualizza le categorie", callback_data="admin_categories")
+    keyboard.add(add_product, InlineKeyboardButton("Creare una categoria", callback_data="admin_create_cat"))
     keyboard.add(products, categories)
-    keyboard.add(InlineKeyboardButton("Manage orders", callback_data="admin_view_orders"), InlineKeyboardButton("Manage Coupons", callback_data="admin_manage_coupon"))
+    keyboard.add(InlineKeyboardButton("Gestire gli ordini", callback_data="admin_view_orders"), InlineKeyboardButton("Manage Coupons", callback_data="admin_manage_coupon"),
+                 InlineKeyboardButton("Modifica del testo", callback_data="admin_edit_text"))
 
     def get_keyboard(active):
         kb = deepcopy(Admin.keyboard)
-        return kb.add(InlineKeyboardButton("Bot is inactive 🤖" if not active else "Bot is Active ✅", callback_data="admin_toggle_active"))
+        return kb.add(InlineKeyboardButton("Il bot è inattivo 🤖" if not active else "Il bot è attivo ✅", callback_data="admin_toggle_active"))
 
     view_orders_kb = InlineKeyboardMarkup()
-    view_orders_kb.add(InlineKeyboardButton("⌛Pending", callback_data="admin_pending_orders"), InlineKeyboardButton("🚚 Shipped", callback_data="admin_shipped_orders"))
+    view_orders_kb.add(InlineKeyboardButton("⌛In attesa", callback_data="admin_pending_orders"), InlineKeyboardButton("🚚 Spedito", callback_data="admin_shipped_orders"))
     view_orders_kb.add(home)
+
+    edit_text_kb = InlineKeyboardMarkup()
+    edit_text_kb.add(InlineKeyboardButton("Spedizione", callback_data="admin_text_shipping"), InlineKeyboardButton("Circa", callback_data="admin_text_about")
+                     ,InlineKeyboardButton("Contatto", callback_data="admin_text_contact"), InlineKeyboardButton("Termini", callback_data="admin_text_terms")
+                     ,InlineKeyboardButton("FAQ", callback_data="admin_text_faq"))
 
     @staticmethod
     def get_products():
@@ -57,20 +63,20 @@ class Admin:
     @staticmethod
     def edit_product(product_id):
         kb = InlineKeyboardMarkup(row_width=2)
-        edit_name = InlineKeyboardButton("Edit Name", callback_data=f"admin_en_{product_id}")
-        edit_price = InlineKeyboardButton("Edit Price", callback_data=f"admin_ep_{product_id}")
-        edit_desc = InlineKeyboardButton("Edit Description", callback_data=f"admin_ed_{product_id}")
-        edit_image = InlineKeyboardButton("Replace Image", callback_data=f"admin_ei_{product_id}")
-        edit_category = InlineKeyboardButton("Edit Category", callback_data=f"admin_ec_{product_id}")
-        edit_discount = InlineKeyboardButton("Edit Discount", callback_data=f"admin_ediscount_{product_id}")
-        delete = InlineKeyboardButton("❌ DELETE", callback_data=f"admin_del_prod:{product_id}")
+        edit_name = InlineKeyboardButton("Modifica Nome", callback_data=f"admin_en_{product_id}")
+        edit_price = InlineKeyboardButton("Modifica Prezzo", callback_data=f"admin_ep_{product_id}")
+        edit_desc = InlineKeyboardButton("Modifica Descrizione", callback_data=f"admin_ed_{product_id}")
+        edit_image = InlineKeyboardButton("Replace Immagine", callback_data=f"admin_ei_{product_id}")
+        edit_category = InlineKeyboardButton("Modifica le categorie", callback_data=f"admin_ec_{product_id}")
+        edit_discount = InlineKeyboardButton("Modifica Sconto", callback_data=f"admin_ediscount_{product_id}")
+        delete = InlineKeyboardButton("❌ Cancellare", callback_data=f"admin_del_prod:{product_id}")
         kb.add(edit_name, edit_price, edit_desc, edit_category, edit_image, edit_discount)
         kb.add(delete, Admin.back)
         return kb
     
     def edit_category(cat_id):
         kb = InlineKeyboardMarkup(row_width=2)
-        edit_name = InlineKeyboardButton("Edit Name", callback_data=f"admin_chancatname:{cat_id}")
+        edit_name = InlineKeyboardButton("Modifica Nome", callback_data=f"admin_chancatname:{cat_id}")
         # delete = InlineKeyboardButton("❌ DELETE", callback_data=f"admin_catdel:{cat_id}")
         kb.add(edit_name)
         # kb.add(delete)
